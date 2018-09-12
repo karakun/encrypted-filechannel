@@ -4,7 +4,7 @@
 
     <groupId>com.karakun</groupId>
     <artifactId>encrypted-filechannel</artifactId>
-    <version>1.0</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
     <name>Encrypted FileChannel</name>
     <url>https://github.com/karakun/encrypted-filechannel</url>
@@ -55,4 +55,17 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>maven-snapshots</id>
+            <name>Karakun nexus snapshots</name>
+            <url>https://nexus.karakun.com/repository/maven-snapshots/</url>
+        </snapshotRepository>
+        <repository>
+            <id>maven-public-releases</id>
+            <name>Karakun nexus releases</name>
+            <url>https://nexus.karakun.com/repository/maven-public-releases/</url>
+        </repository>
+    </distributionManagement>
 </project>
