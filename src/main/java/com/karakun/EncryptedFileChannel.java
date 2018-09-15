@@ -13,7 +13,12 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.*;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.util.Arrays;
+
+import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
  * An encrypted FileChannel based on google tink library
@@ -33,21 +38,25 @@ public class EncryptedFileChannel extends FileChannel {
      */
     private long size = 0;
 
-    private final String name;
+    private final Path path;
 
     private byte[] encryptionKey;
-    private boolean readOnly;
     private SeekableByteChannel readableByteChannel;
     private WritableByteChannel writableByteChannel;
+    private OpenOption[] openOptions;
 
-    public EncryptedFileChannel(final String name, final byte[] encryptionKey, final FileChannel base, final boolean readOnly) {
+    private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
         if (encryptionKey == null) {
-            throw new IllegalStateException(String.format("Encryption key must not be null for file '%s'.", name));
+            throw new IllegalStateException(String.format("Encryption key must not be null for file '%s'.", path));
         }
-        this.name = name;
-        this.base = base;
+        this.openOptions = openOptions;
         this.encryptionKey = encryptionKey.clone();
-        this.readOnly = readOnly;
+        this.path = path;
+        this.base = FileChannel.open(path, openOptions);
+    }
+
+    public static EncryptedFileChannel open(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
+        return new EncryptedFileChannel(path, encryptionKey, openOptions);
     }
 
     private void initRead() throws IOException {
@@ -66,7 +75,7 @@ public class EncryptedFileChannel extends FileChannel {
     }
 
     private void initWrite() throws IOException {
-        if (readOnly) {
+        if (!Arrays.asList(openOptions).contains(WRITE)) {
             throw new IllegalStateException("This encrypted FileChannel is readonly");
         }
         if (writableByteChannel != null) {
@@ -211,7 +220,7 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public String toString() {
-        return name;
+        return path.toString();
     }
 
     static StreamingAead constructCryptoPrimitive(byte[] keyBytes) throws GeneralSecurityException {
