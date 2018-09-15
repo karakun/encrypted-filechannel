@@ -1,4 +1,4 @@
-package org.h2.store.fs;
+package com.karakun;
 
 
 import org.junit.Assert;
@@ -16,20 +16,36 @@ import java.util.Base64;
 
 import static java.nio.file.StandardOpenOption.*;
 
-public class EncryptedH2FileChannelTest {
+public class EncryptedFileChannelTest {
 
     private Path tempDir;
     private byte[] encryptionKey = Base64.getUrlDecoder().decode("cxGrfBkPPMpbUGKUU1iaBW8RCDeID8-uR40jslBQaMY=");
 
     @Before
     public void setup() throws IOException {
-        tempDir = Files.createTempDirectory(EncryptedH2FileChannelTest.class.getName());
+        tempDir = Files.createTempDirectory(EncryptedFileChannelTest.class.getName());
+    }
+
+    @Test
+    public void simpleWriteThenRead() throws IOException {
+        Path tmpFile = tempDir.resolve("writeAndRead.tlog");
+        final String writeString = "Hallo Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.";
+        try (final FileChannel base = FileChannel.open(tmpFile, WRITE, READ, CREATE_NEW);
+             final FileChannel encryptedFileChannel = new EncryptedFileChannel("name", encryptionKey, base, false)) {
+            encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
+        }
+        try (final FileChannel base = FileChannel.open(tmpFile, READ);
+             final FileChannel encryptedFileChannel = new EncryptedFileChannel("name", encryptionKey, base, false)) {
+                     final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.length());
+            encryptedFileChannel.read(byteBuffer, 0);
+            Assert.assertEquals(writeString, new String(byteBuffer.array()));
+        }
     }
 
     @Test
     public void simpleWriteAndRead() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
-        final String writeString = "Hallo Welt";
+        final String writeString = "Hallo Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.";
         try (final FileChannel base = FileChannel.open(tmpFile, WRITE, READ, CREATE_NEW);
              final FileChannel encryptedFileChannel = new EncryptedFileChannel("name", encryptionKey, base, false)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
@@ -43,7 +59,7 @@ public class EncryptedH2FileChannelTest {
     @Test
     public void distributedWriteAndRead() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
-        final String writeString = "Hallo Welt";
+        final String writeString = "Hallo Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.";
         try (final FileChannel base = FileChannel.open(tmpFile, WRITE, CREATE_NEW);
              final FileChannel encryptedFileChannel = new EncryptedFileChannel("name", encryptionKey, base, false)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
@@ -62,7 +78,7 @@ public class EncryptedH2FileChannelTest {
     public void writeMoveAndRead() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
         Path destFile = tempDir.resolve("writeAndReadMove.tlog");
-        final String writeString = "Hallo Welt";
+        final String writeString = "Hallo Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.";
         try (final FileChannel base = FileChannel.open(tmpFile, WRITE, CREATE_NEW);
              final FileChannel encryptedFileChannel =  new EncryptedFileChannel("name", encryptionKey, base, false)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
@@ -81,14 +97,14 @@ public class EncryptedH2FileChannelTest {
     @Test
     public void writeAndReadFromPos() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndReadFromPos.tlog");
-        final String writeString = "Hallo Welt";
+        final String writeString = "Hallo Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.";
         try (final FileChannel base = FileChannel.open(tmpFile, WRITE, READ, CREATE_NEW);
              final FileChannel encryptedFileChannel = new EncryptedFileChannel("name", encryptionKey, base, false)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
 
             final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.length());
             final int read = encryptedFileChannel.read(byteBuffer, 6);
-            Assert.assertEquals("Welt", new String(byteBuffer.array(), 0, read));
+            Assert.assertEquals("Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.", new String(byteBuffer.array(), 0, read));
         }
     }
 
