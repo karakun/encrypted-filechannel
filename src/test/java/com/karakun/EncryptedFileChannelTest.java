@@ -149,8 +149,10 @@ public class EncryptedFileChannelTest {
 
             encryptedFileChannel.write(ByteBuffer.wrap("Hallo Welt".getBytes()), 5000);
 
-            final ByteBuffer byteBuffer = ByteBuffer.allocate("Hallo Welt".getBytes().length);
+            final int length = "Hallo Welt".getBytes().length;
+            final ByteBuffer byteBuffer = ByteBuffer.allocate(length);
             final int read = encryptedFileChannel.read(byteBuffer, 5006);
+            Assert.assertEquals(length, read);
             Assert.assertEquals("Welt      ", new String(byteBuffer.array(), 0, read));
 
         }

@@ -150,7 +150,7 @@ public class EncryptedFileChannel extends FileChannel {
             try (WritableByteChannel writableByteChannel = streamingAead.newEncryptingChannel(FileChannel.open(path, WRITE), new byte[]{})) {
                 int bytesWritten = writableByteChannel.write(tmp);
                 if (tmp.array().length != bytesWritten) {
-
+                    throw new IllegalStateException("failed to write bytes");
                 }
             }
         } catch (GeneralSecurityException e) {
