@@ -61,9 +61,6 @@ public class EncryptedFileChannel extends FileChannel {
     }
 
     private void initRead() throws IOException {
-        if (readableByteChannel != null) {
-            return;
-        }
         if (Files.exists(path) && Files.size(path) > 0) {
             try {
                 StreamingAead streamingAead = constructCryptoPrimitive(encryptionKey);
@@ -143,6 +140,7 @@ public class EncryptedFileChannel extends FileChannel {
         if (readableByteChannel != null) {
             read(tmp, 0);
         }
+        tmp.position((int) position);
         tmp.put(src.array(), 0, bytesToWrite);
         tmp.rewind();
         try {
