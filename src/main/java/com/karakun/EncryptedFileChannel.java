@@ -27,7 +27,6 @@ import static java.nio.file.StandardOpenOption.WRITE;
  */
 public class EncryptedFileChannel extends FileChannel {
 
-
     private final FileChannel base;
 
     /**
@@ -35,54 +34,61 @@ public class EncryptedFileChannel extends FileChannel {
      */
     private long pos = 0;
 
-    /**
-     * The current file size, from a user perspective.
-     */
-    private long size = 0;
-
     private final Path path;
-
-    private byte[] encryptionKey;
-    private SeekableByteChannel readableByteChannel;
-    private OpenOption[] openOptions;
+    private final OpenOption[] openOptions;
+    private final StreamingAead cryptoPrimitive;
+    private final Object positionLock = new Object();
 
     private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
         if (encryptionKey == null) {
             throw new IllegalStateException(String.format("Encryption key must not be null for file '%s'.", path));
         }
         this.openOptions = openOptions;
-        this.encryptionKey = encryptionKey.clone();
         this.path = path;
         this.base = FileChannel.open(path, openOptions);
+        try {
+            cryptoPrimitive = constructCryptoPrimitive(encryptionKey);
+        } catch (GeneralSecurityException e) {
+            throw new IOException(e);
+        }
     }
 
     public static EncryptedFileChannel open(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
         return new EncryptedFileChannel(path, encryptionKey, openOptions);
     }
 
-    private void initRead() throws IOException {
+    private SeekableByteChannel getInputChannel() throws IOException {
         if (Files.exists(path) && Files.size(path) > 0) {
             try {
-                StreamingAead streamingAead = constructCryptoPrimitive(encryptionKey);
-                readableByteChannel = streamingAead.newSeekableDecryptingChannel(FileChannel.open(path, READ), new byte[]{});
-                size = readableByteChannel.size();
+                return cryptoPrimitive.newSeekableDecryptingChannel(FileChannel.open(path, READ), new byte[]{});
             } catch (GeneralSecurityException e) {
                 throw new IOException(e);
             }
+        }
+        return null;
+    }
+
+    private WritableByteChannel getOutputChannel() throws IOException {
+        try {
+            return cryptoPrimitive.newEncryptingChannel(FileChannel.open(path, WRITE), new byte[]{});
+        } catch (GeneralSecurityException e) {
+            throw new IOException(e);
         }
     }
 
     @Override
     protected void implCloseChannel() throws IOException {
-        if (readableByteChannel != null) {
-            readableByteChannel.close();
+        if (base != null) {
+            base.close();
         }
     }
 
     @Override
     public FileChannel position(long newPosition) {
-        this.pos = newPosition;
-        return this;
+        synchronized (positionLock) {
+            this.pos = newPosition;
+            return this;
+        }
     }
 
     @Override
@@ -92,11 +98,13 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public int read(ByteBuffer dst) throws IOException {
-        int len = read(dst, pos);
-        if (len > 0) {
-            pos += len;
+        synchronized (positionLock) {
+            int len = read(dst, pos);
+            if (len > 0) {
+                pos += len;
+            }
+            return len;
         }
-        return len;
     }
 
     @Override
@@ -106,21 +114,27 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public synchronized int read(ByteBuffer dst, long position) throws IOException {
-        initRead();
-        if (position == size) {
-            return -1;
+        try (final SeekableByteChannel inputChannel = getInputChannel()) {
+            if (inputChannel != null) {
+                if (position == inputChannel.size()) {
+                    return -1;
+                }
+                inputChannel.position(position);
+                return inputChannel.read(dst);
+            }
         }
-        readableByteChannel.position(position);
-        return readableByteChannel.read(dst);
+        return 0;
     }
 
     @Override
     public int write(ByteBuffer src) throws IOException {
-        int len = write(src, pos);
-        if (len > 0) {
-            pos += len;
+        synchronized (positionLock) {
+            int len = write(src, pos);
+            if (len > 0) {
+                pos += len;
+            }
+            return len;
         }
-        return len;
     }
 
     @Override
@@ -133,29 +147,24 @@ public class EncryptedFileChannel extends FileChannel {
         if (!Arrays.asList(openOptions).contains(WRITE)) {
             throw new IllegalStateException("This encrypted FileChannel is readonly");
         }
-        initRead();
         int bytesToWrite = src.remaining();
-        final long newSize = Math.max(size, position + bytesToWrite);
+        final long newSize = Math.max(size(), position + bytesToWrite);
         final ByteBuffer tmp = ByteBuffer.allocate((int) newSize);
-        if (readableByteChannel != null) {
-            read(tmp, 0);
-        }
+        read(tmp, 0);
         tmp.position((int) position);
         tmp.put(src.array(), 0, bytesToWrite);
         tmp.rewind();
-        try {
-            StreamingAead streamingAead = constructCryptoPrimitive(encryptionKey);
-            try (WritableByteChannel writableByteChannel = streamingAead.newEncryptingChannel(FileChannel.open(path, WRITE), new byte[]{})) {
-                int bytesWritten = writableByteChannel.write(tmp);
-                if (tmp.array().length != bytesWritten) {
-                    throw new IllegalStateException("failed to write bytes");
-                }
-            }
-        } catch (GeneralSecurityException e) {
-            throw new IOException(e);
-        }
-        size = newSize;
+        internalWrite(tmp);
         return bytesToWrite;
+    }
+
+    private synchronized void internalWrite(ByteBuffer tmp) throws IOException {
+        try (WritableByteChannel writableByteChannel = getOutputChannel()) {
+            int bytesWritten = writableByteChannel.write(tmp);
+            if (tmp.array().length != bytesWritten) {
+                throw new IllegalStateException("failed to write bytes");
+            }
+        }
     }
 
 
@@ -171,22 +180,28 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public long size() throws IOException {
-        return size;
+        try (final SeekableByteChannel inputChannel = getInputChannel()) {
+            if (inputChannel != null) {
+                return inputChannel.size();
+            }
+        }
+        return 0;
     }
 
     @Override
     public FileChannel truncate(long size) throws IOException {
-        initRead();
-        if (this.size < size) {
-            return this;
-        }
-        final ByteBuffer tmp = ByteBuffer.allocate((int) size);
-        if (readableByteChannel != null) {
-            read(tmp, 0);
-            tmp.flip();
-            this.size = size;
-            write(tmp, 0);
-            pos = Math.min(pos, this.size);
+        try (final SeekableByteChannel inputChannel = getInputChannel()) {
+            if (inputChannel != null) {
+                if (inputChannel.size() <= size) {
+                    return this;
+                } else {
+                    final ByteBuffer tmp = ByteBuffer.allocate((int) size);
+                    read(tmp, 0);
+                    tmp.flip();
+                    internalWrite(tmp);
+                    pos = Math.min(pos, size);
+                }
+            }
         }
         return this;
     }

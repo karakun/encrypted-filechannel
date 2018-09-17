@@ -67,6 +67,34 @@ public class EncryptedFileChannelTest {
     }
 
     @Test
+    public void simpleWriteTruncateAndRead() throws IOException {
+        Path tmpFile = tempDir.resolve("writeAndRead.tlog");
+        final String writeString = "Hallo Welt!";
+        try (final FileChannel encryptedFileChannel = EncryptedFileChannel.open(tmpFile, encryptionKey, WRITE, READ, CREATE_NEW)) {
+            encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
+            encryptedFileChannel.truncate("Hallo".getBytes().length);
+
+            final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
+            final int read = encryptedFileChannel.read(byteBuffer, 0);
+            Assert.assertEquals("Hallo", new String(byteBuffer.array(), 0, read));
+        }
+    }
+
+    @Test
+    public void simpleWriteTruncateBiggerAndRead() throws IOException {
+        Path tmpFile = tempDir.resolve("writeAndRead.tlog");
+        final String writeString = "Hallo Welt!";
+        try (final FileChannel encryptedFileChannel = EncryptedFileChannel.open(tmpFile, encryptionKey, WRITE, READ, CREATE_NEW)) {
+            encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
+            encryptedFileChannel.truncate(writeString.getBytes().length);
+
+            final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
+            final int read = encryptedFileChannel.read(byteBuffer, 0);
+            Assert.assertEquals(writeString, new String(byteBuffer.array(), 0, read));
+        }
+    }
+
+    @Test
     public void twoWritesAndOneRead() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
         final String hallo = "Hallo";
