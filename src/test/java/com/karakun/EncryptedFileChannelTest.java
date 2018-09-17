@@ -29,12 +29,12 @@ public class EncryptedFileChannelTest {
     @Test
     public void simpleWriteThenRead() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
-        final String writeString = "Hallo Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.";
+        final String writeString = "Hallo Welt!";
         try (final FileChannel encryptedFileChannel = EncryptedFileChannel.open(tmpFile, encryptionKey, WRITE, READ, CREATE_NEW)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
         }
         try (final FileChannel encryptedFileChannel = EncryptedFileChannel.open(tmpFile, encryptionKey, READ)) {
-                     final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.length());
+                     final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
             encryptedFileChannel.read(byteBuffer, 0);
             Assert.assertEquals(writeString, new String(byteBuffer.array()));
         }
@@ -43,13 +43,47 @@ public class EncryptedFileChannelTest {
     @Test
     public void simpleWriteAndRead() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
-        final String writeString = "Hallo Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.";
+        final String writeString = "Hallo Welt!";
         try (final FileChannel encryptedFileChannel = EncryptedFileChannel.open(tmpFile, encryptionKey, WRITE, READ, CREATE_NEW)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
 
-            final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.length());
+            final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
             encryptedFileChannel.read(byteBuffer, 0);
             Assert.assertEquals(writeString, new String(byteBuffer.array()));
+        }
+    }
+
+    @Test
+    public void simpleWriteAndReadAtEOF() throws IOException {
+        Path tmpFile = tempDir.resolve("writeAndRead.tlog");
+        final String writeString = "Hallo Welt!";
+        try (final FileChannel encryptedFileChannel = EncryptedFileChannel.open(tmpFile, encryptionKey, WRITE, READ, CREATE_NEW)) {
+            encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
+
+            final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
+            final int read = encryptedFileChannel.read(byteBuffer, writeString.getBytes().length);
+            Assert.assertEquals(-1, read);
+        }
+    }
+
+    @Test
+    public void twoWritesAndOneRead() throws IOException {
+        Path tmpFile = tempDir.resolve("writeAndRead.tlog");
+        final String hallo = "Hallo";
+        final String welt = " Welt!";
+        try (final FileChannel encryptedFileChannel = EncryptedFileChannel.open(tmpFile, encryptionKey, WRITE, READ, CREATE_NEW)) {
+            int write = encryptedFileChannel.write(ByteBuffer.wrap(hallo.getBytes()));
+            Assert.assertEquals(hallo.getBytes().length, write);
+            write = encryptedFileChannel.write(ByteBuffer.wrap(welt.getBytes()), hallo.getBytes().length);
+            Assert.assertEquals(welt.getBytes().length, write);
+
+
+            final int length = (hallo + welt).getBytes().length;
+            final ByteBuffer byteBuffer = ByteBuffer.allocate(length);
+            final int read = encryptedFileChannel.read(byteBuffer, 0);
+            Assert.assertEquals(length, read);
+            Assert.assertEquals(hallo + welt, new String(byteBuffer.array()));
+
         }
     }
 
@@ -62,7 +96,7 @@ public class EncryptedFileChannelTest {
             encryptedFileChannel.force(true);
 
             try (final FileChannel encryptedFileChannel2 = EncryptedFileChannel.open(tmpFile, encryptionKey, READ)) {
-                final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.length());
+                final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
                 encryptedFileChannel2.read(byteBuffer);
                 Assert.assertEquals(writeString, new String(byteBuffer.array()));
             }
@@ -80,7 +114,7 @@ public class EncryptedFileChannelTest {
             Files.move(tmpFile, destFile, StandardCopyOption.ATOMIC_MOVE);
 
             try (final FileChannel encryptedFileChannel2 = EncryptedFileChannel.open(destFile, encryptionKey, READ)) {
-                final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.length());
+                final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
                 encryptedFileChannel2.read(byteBuffer);
                 Assert.assertEquals(writeString, new String(byteBuffer.array()));
             }
@@ -94,7 +128,7 @@ public class EncryptedFileChannelTest {
         try (final FileChannel encryptedFileChannel = EncryptedFileChannel.open(tmpFile, encryptionKey, WRITE, READ, CREATE_NEW)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
 
-            final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.length());
+            final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
             final int read = encryptedFileChannel.read(byteBuffer, 6);
             Assert.assertEquals("Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.", new String(byteBuffer.array(), 0, read));
         }
@@ -115,7 +149,7 @@ public class EncryptedFileChannelTest {
 
             encryptedFileChannel.write(ByteBuffer.wrap("Hallo Welt".getBytes()), 5000);
 
-            final ByteBuffer byteBuffer = ByteBuffer.allocate("Hallo Welt".length());
+            final ByteBuffer byteBuffer = ByteBuffer.allocate("Hallo Welt".getBytes().length);
             final int read = encryptedFileChannel.read(byteBuffer, 5006);
             Assert.assertEquals("Welt      ", new String(byteBuffer.array(), 0, read));
 

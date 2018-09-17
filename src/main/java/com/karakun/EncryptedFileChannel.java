@@ -13,11 +13,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.*;
+import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
 
+import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
@@ -42,7 +44,6 @@ public class EncryptedFileChannel extends FileChannel {
 
     private byte[] encryptionKey;
     private SeekableByteChannel readableByteChannel;
-    private WritableByteChannel writableByteChannel;
     private OpenOption[] openOptions;
 
     private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
@@ -63,30 +64,14 @@ public class EncryptedFileChannel extends FileChannel {
         if (readableByteChannel != null) {
             return;
         }
-        if (base.size() > 0) {
+        if (Files.exists(path) && Files.size(path) > 0) {
             try {
                 StreamingAead streamingAead = constructCryptoPrimitive(encryptionKey);
-                readableByteChannel = streamingAead.newSeekableDecryptingChannel(base, new byte[]{});
+                readableByteChannel = streamingAead.newSeekableDecryptingChannel(FileChannel.open(path, READ), new byte[]{});
                 size = readableByteChannel.size();
             } catch (GeneralSecurityException e) {
                 throw new IOException(e);
             }
-        }
-    }
-
-    private void initWrite() throws IOException {
-        if (!Arrays.asList(openOptions).contains(WRITE)) {
-            throw new IllegalStateException("This encrypted FileChannel is readonly");
-        }
-        if (writableByteChannel != null) {
-            return;
-        }
-        initRead();
-        try {
-            StreamingAead streamingAead = constructCryptoPrimitive(encryptionKey);
-            writableByteChannel = streamingAead.newEncryptingChannel(base, new byte[]{});
-        } catch (GeneralSecurityException e) {
-            throw new IOException(e);
         }
     }
 
@@ -125,6 +110,9 @@ public class EncryptedFileChannel extends FileChannel {
     @Override
     public synchronized int read(ByteBuffer dst, long position) throws IOException {
         initRead();
+        if (position == size) {
+            return -1;
+        }
         readableByteChannel.position(position);
         return readableByteChannel.read(dst);
     }
@@ -145,7 +133,10 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public synchronized int write(ByteBuffer src, long position) throws IOException {
-        initWrite();
+        if (!Arrays.asList(openOptions).contains(WRITE)) {
+            throw new IllegalStateException("This encrypted FileChannel is readonly");
+        }
+        initRead();
         int bytesToWrite = src.remaining();
         final long newSize = Math.max(size, position + bytesToWrite);
         final ByteBuffer tmp = ByteBuffer.allocate((int) newSize);
@@ -153,13 +144,19 @@ public class EncryptedFileChannel extends FileChannel {
             read(tmp, 0);
         }
         tmp.put(src.array(), 0, bytesToWrite);
-        tmp.flip();
-        int written = 0;
-        do {
-            written += writableByteChannel.write(src);
-        } while (written < bytesToWrite);
+        tmp.rewind();
+        try {
+            StreamingAead streamingAead = constructCryptoPrimitive(encryptionKey);
+            try (WritableByteChannel writableByteChannel = streamingAead.newEncryptingChannel(FileChannel.open(path, WRITE), new byte[]{})) {
+                int bytesWritten = writableByteChannel.write(tmp);
+                if (tmp.array().length != bytesWritten) {
+
+                }
+            }
+        } catch (GeneralSecurityException e) {
+            throw new IOException(e);
+        }
         size = newSize;
-        pos = pos + bytesToWrite;
         return bytesToWrite;
     }
 
@@ -176,7 +173,6 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public long size() throws IOException {
-        initRead();
         return size;
     }
 
