@@ -190,20 +190,7 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public FileChannel truncate(long size) throws IOException {
-        try (final SeekableByteChannel inputChannel = getInputChannel()) {
-            if (inputChannel != null) {
-                if (inputChannel.size() <= size) {
-                    return this;
-                } else {
-                    final ByteBuffer tmp = ByteBuffer.allocate((int) size);
-                    read(tmp, 0);
-                    tmp.flip();
-                    internalWrite(tmp);
-                    pos = Math.min(pos, size);
-                }
-            }
-        }
-        return this;
+        throw new UnsupportedOperationException();
     }
 
     @Override
