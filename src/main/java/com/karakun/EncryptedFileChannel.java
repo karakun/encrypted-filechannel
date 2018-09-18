@@ -114,6 +114,9 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public synchronized int read(ByteBuffer dst, long position) throws IOException {
+        if (position < 0) {
+            throw new IllegalArgumentException("negative position");
+        }
         try (final SeekableByteChannel inputChannel = getInputChannel()) {
             if (inputChannel != null) {
                 if (position == inputChannel.size()) {
