@@ -4,7 +4,7 @@
 
     <groupId>com.karakun</groupId>
     <artifactId>encrypted-filechannel</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>Encrypted FileChannel</name>
     <url>https://github.com/karakun/encrypted-filechannel</url>
