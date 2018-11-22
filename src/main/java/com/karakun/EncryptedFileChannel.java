@@ -161,7 +161,7 @@ public class EncryptedFileChannel extends FileChannel {
         return bytesToWrite;
     }
 
-    private synchronized void internalWrite(ByteBuffer tmp) throws IOException {
+    private void internalWrite(ByteBuffer tmp) throws IOException {
         try (WritableByteChannel writableByteChannel = getOutputChannel()) {
             int bytesWritten = writableByteChannel.write(tmp);
             if (tmp.array().length != bytesWritten) {
