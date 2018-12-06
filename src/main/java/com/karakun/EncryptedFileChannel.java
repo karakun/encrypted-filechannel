@@ -158,6 +158,8 @@ public class EncryptedFileChannel extends FileChannel {
         tmp.put(src.array(), 0, bytesToWrite);
         tmp.rewind();
         internalWrite(tmp);
+        src.position(src.position() + bytesToWrite);
+
         return bytesToWrite;
     }
 
