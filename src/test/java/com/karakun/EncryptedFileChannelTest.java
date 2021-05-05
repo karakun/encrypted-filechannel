@@ -1,8 +1,7 @@
 package com.karakun;
 
-
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -17,14 +16,15 @@ import java.util.Arrays;
 import java.util.Base64;
 
 import static java.nio.file.StandardOpenOption.*;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class EncryptedFileChannelTest {
 
     private Path tempDir;
     private final byte[] encryptionKey = Base64.getUrlDecoder().decode("cxGrfBkPPMpbUGKUU1iaBW8RCDeID8-uR40jslBQaMY=");
 
-    @Before
+    @BeforeEach
     public void setup() throws IOException {
         tempDir = Files.createTempDirectory(EncryptedFileChannelTest.class.getName());
     }
@@ -34,12 +34,14 @@ public class EncryptedFileChannelTest {
     }
 
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void readWithNegativePos() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
         try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
             final ByteBuffer byteBuffer = ByteBuffer.allocate(" ".getBytes().length);
-            encryptedFileChannel.read(byteBuffer, -1);
+            assertThrows(IllegalArgumentException.class, () -> {
+                encryptedFileChannel.read(byteBuffer, -1);
+            });
         }
     }
 
@@ -65,13 +67,13 @@ public class EncryptedFileChannelTest {
         final String writeString = "Hallo Welt!";
         try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
-            assertEquals("size", writeString.getBytes().length, encryptedFileChannel.size());
+            assertEquals(writeString.getBytes().length, encryptedFileChannel.size(), "size");
         }
         try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, READ)) {
             final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
             encryptedFileChannel.read(byteBuffer, 0);
             assertEquals(writeString, new String(byteBuffer.array()));
-            assertEquals("size", writeString.getBytes().length, encryptedFileChannel.size());
+            assertEquals(writeString.getBytes().length, encryptedFileChannel.size(), "size");
         }
     }
 
@@ -82,13 +84,13 @@ public class EncryptedFileChannelTest {
         try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW);
              final OutputStream outputStream = Channels.newOutputStream(encryptedFileChannel)) {
             outputStream.write(writeString.getBytes());
-            assertEquals("size", writeString.getBytes().length, encryptedFileChannel.size());
+            assertEquals(writeString.getBytes().length, encryptedFileChannel.size(), "size");
         }
         try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, READ)) {
             final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
             encryptedFileChannel.read(byteBuffer, 0);
             assertEquals(writeString, new String(byteBuffer.array()));
-            assertEquals("size", writeString.getBytes().length, encryptedFileChannel.size());
+            assertEquals(writeString.getBytes().length, encryptedFileChannel.size(), "size");
         }
     }
 
@@ -126,10 +128,10 @@ public class EncryptedFileChannelTest {
         try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
             int write = encryptedFileChannel.write(ByteBuffer.wrap(hallo.getBytes()));
             assertEquals(hallo.getBytes().length, write);
-            assertEquals("size", hallo.getBytes().length, encryptedFileChannel.size());
+            assertEquals(hallo.getBytes().length, encryptedFileChannel.size(), "size");
             write = encryptedFileChannel.write(ByteBuffer.wrap(welt.getBytes()), hallo.getBytes().length);
             assertEquals(welt.getBytes().length, write);
-            assertEquals("size", (hallo + welt).getBytes().length, encryptedFileChannel.size());
+            assertEquals((hallo + welt).getBytes().length, encryptedFileChannel.size(), "size");
 
             final int length = (hallo + welt).getBytes().length;
             final ByteBuffer byteBuffer = ByteBuffer.allocate(length);
@@ -163,13 +165,13 @@ public class EncryptedFileChannelTest {
         try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
             encryptedFileChannel.force(true);
-            assertEquals("size", writeString.getBytes().length, encryptedFileChannel.size());
+            assertEquals(writeString.getBytes().length, encryptedFileChannel.size(), "size");
             Files.move(tmpFile, destFile, StandardCopyOption.ATOMIC_MOVE);
 
             try (final FileChannel encryptedFileChannel2 = getFileChannel(destFile, READ)) {
                 final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
                 encryptedFileChannel2.read(byteBuffer);
-                assertEquals("size", writeString.getBytes().length, encryptedFileChannel2.size());
+                assertEquals(writeString.getBytes().length, encryptedFileChannel2.size(), "size");
                 assertEquals(writeString, new String(byteBuffer.array()));
             }
         }
