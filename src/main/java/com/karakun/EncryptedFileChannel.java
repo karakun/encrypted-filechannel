@@ -126,7 +126,7 @@ public class EncryptedFileChannel extends FileChannel {
                 return inputChannel.read(dst);
             }
         }
-        return 0;
+        return -1;
     }
 
     @Override

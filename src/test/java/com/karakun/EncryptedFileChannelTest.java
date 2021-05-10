@@ -62,6 +62,35 @@ public class EncryptedFileChannelTest {
     }
 
     @Test
+    public void readBeforeWriteNotEncrypted() throws IOException {
+        final Path notExisting = tempDir.resolve("notExisting.tlog");
+        try (final FileChannel standardFileChannel = FileChannel.open(notExisting, READ, WRITE, CREATE_NEW)) {
+            final ByteBuffer byteBuffer = ByteBuffer.allocate("".getBytes().length);
+            assertEquals(0, standardFileChannel.read(byteBuffer), "size");
+        }
+    }
+
+    @Test
+    public void readNonExistingFileNotEncrypted() throws IOException {
+        Path tmpFile = tempDir.resolve("notExisting.tlog");
+        try (final FileChannel standardFileChannel = FileChannel.open(tmpFile, WRITE, READ, CREATE_NEW)) {
+            Files.delete(tmpFile);
+            final ByteBuffer byteBuffer = ByteBuffer.allocate("Hallo Welt".getBytes().length);
+            assertEquals(-1, standardFileChannel.read(byteBuffer), "size");
+        }
+    }
+
+    @Test
+    public void readNonExistingFileEncrypted() throws IOException {
+        Path tmpFile = tempDir.resolve("notExisting.tlog");
+        try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
+            Files.delete(tmpFile);
+            final ByteBuffer byteBuffer = ByteBuffer.allocate("Hallo Welt".getBytes().length);
+            assertEquals(-1, encryptedFileChannel.read(byteBuffer), "size");
+        }
+    }
+
+    @Test
     public void simpleWriteThenRead() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
         final String writeString = "Hallo Welt!";
@@ -98,12 +127,15 @@ public class EncryptedFileChannelTest {
     public void simpleWriteAndRead() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
         final String writeString = "Hallo Welt!";
-        try (final FileChannel encryptedFileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
+        final FileChannel encryptedFileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW);
+        try {
             encryptedFileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
 
             final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
             encryptedFileChannel.read(byteBuffer, 0);
             assertEquals(writeString, new String(byteBuffer.array()));
+        } finally {
+            encryptedFileChannel.close();
         }
     }
 
