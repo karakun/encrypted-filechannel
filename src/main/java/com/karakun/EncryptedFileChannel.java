@@ -19,8 +19,7 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
 
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardOpenOption.*;
 
 /**
  * An encrypted FileChannel based on google tink library
@@ -38,6 +37,7 @@ public class EncryptedFileChannel extends FileChannel {
     private final OpenOption[] openOptions;
     private final StreamingAead cryptoPrimitive;
     private final Object positionLock = new Object();
+    private final Object fileLock;
 
     private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
         if (encryptionKey == null) {
@@ -46,6 +46,7 @@ public class EncryptedFileChannel extends FileChannel {
         this.openOptions = openOptions;
         this.path = path;
         this.base = FileChannel.open(path, openOptions);
+        this.fileLock = path.toAbsolutePath().toString().intern();
         try {
             cryptoPrimitive = constructCryptoPrimitive(encryptionKey);
         } catch (GeneralSecurityException e) {
@@ -131,12 +132,17 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     public int write(ByteBuffer src) throws IOException {
-        synchronized (positionLock) {
-            int len = write(src, pos);
-            if (len > 0) {
-                pos += len;
+        synchronized (fileLock) {
+            synchronized (positionLock) {
+                if (Arrays.stream(openOptions).anyMatch(it -> it == APPEND)) {
+                    pos = base.size() == 0 ? base.size() : size();
+                }
+                int len = write(src, pos);
+                if (len > 0) {
+                    pos += len;
+                }
+                return len;
             }
-            return len;
         }
     }
 
@@ -146,20 +152,21 @@ public class EncryptedFileChannel extends FileChannel {
     }
 
     @Override
-    public synchronized int write(ByteBuffer src, long position) throws IOException {
+    public int write(ByteBuffer src, long position) throws IOException {
         if (!Arrays.asList(openOptions).contains(WRITE)) {
-            throw new IllegalStateException("This encrypted FileChannel is readonly");
+            throw new NonWritableChannelException();
         }
         int bytesToWrite = src.remaining();
-        final long newSize = Math.max(size(), position + bytesToWrite);
-        final ByteBuffer tmp = ByteBuffer.allocate((int) newSize);
-        read(tmp, 0);
-        tmp.position((int) position);
-        tmp.put(src.array(), 0, bytesToWrite);
-        tmp.rewind();
-        internalWrite(tmp);
-        src.position(src.position() + bytesToWrite);
-
+        synchronized (fileLock) {
+            final long newSize = Math.max(size(), position + bytesToWrite);
+            final ByteBuffer tmp = ByteBuffer.allocate((int) newSize);
+            read(tmp, 0);
+            tmp.position((int) position);
+            tmp.put(src.array(), 0, bytesToWrite);
+            tmp.rewind();
+            internalWrite(tmp);
+            src.position(src.position() + bytesToWrite);
+        }
         return bytesToWrite;
     }
 
@@ -216,7 +223,7 @@ public class EncryptedFileChannel extends FileChannel {
     @Override
     public FileLock tryLock(long position, long size, boolean shared)
             throws IOException {
-        return base.tryLock(position, size, shared);
+        throw new UnsupportedOperationException();
     }
 
     @Override

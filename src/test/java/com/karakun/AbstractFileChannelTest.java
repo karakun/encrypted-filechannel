@@ -13,6 +13,10 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 import static java.nio.file.StandardOpenOption.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,7 +46,78 @@ public abstract class AbstractFileChannelTest {
     }
 
     @Test
-    public void simpleWriteThenReadToPos() throws IOException {
+    public void positionSet() throws IOException {
+        final Random rand = new Random();
+        Path tmpFile = tempDir.resolve("writeForceWrite.tlog");
+        try (final FileChannel fileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
+            final String text = "Hallo Welt! Hier testen wir die Position.";
+            fileChannel.write(ByteBuffer.wrap(text.getBytes()));
+            assertEquals(text.length(), fileChannel.position());
+            for (int i = 0; i < 10; i++) {
+                final int newPosition = rand.nextInt(text.length());
+                fileChannel.position(newPosition);
+                assertEquals(newPosition, fileChannel.position());
+            }
+        }
+    }
+
+    @Test
+    public void writeForceWrite() throws IOException {
+        Path tmpFile = tempDir.resolve("writeForceWrite.tlog");
+        try (final FileChannel fileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
+            fileChannel.write(ByteBuffer.wrap("k".getBytes()));
+            fileChannel.force(false);
+            fileChannel.write(ByteBuffer.wrap("kk".getBytes()));
+            assertEquals(3, fileChannel.size());
+        }
+    }
+
+    @Test
+    public void appendedWrites() throws IOException {
+        final Path tmpFile = Files.createTempFile("appendedWrites", ".tlog");
+        for (int append = 0; append < 100; append++) {
+            try (FileChannel fileChannel = getFileChannel(tmpFile, WRITE, APPEND)) {
+                fileChannel.write(ByteBuffer.wrap("k".getBytes()));
+            }
+        }
+        FileChannel fileChannel = getFileChannel(tmpFile, READ);
+        assertEquals(100, fileChannel.size());
+    }
+
+    @Test
+    public void positionalWrites() throws IOException {
+        final Path tmpFile = Files.createTempFile("positionalWrites", ".tlog");
+        for (int append = 0; append < 100; append++) {
+            try (FileChannel fileChannel = getFileChannel(tmpFile, WRITE)) {
+                fileChannel.write(ByteBuffer.wrap("k".getBytes()), append);
+            }
+        }
+        FileChannel fileChannel = getFileChannel(tmpFile, READ);
+        assertEquals(100, fileChannel.size());
+    }
+
+    @Test
+    public void atomicWrites() throws IOException {
+        final Path tmpFile = Files.createTempFile("atomicWrites", ".tlog");
+        final int numberOfFC = 100;
+        final int numberOfWritesPerFC = 10;
+        List<Long> aList = LongStream.rangeClosed(1, numberOfFC).boxed()
+                .collect(Collectors.toList());
+        aList.parallelStream().forEach(it -> {
+            try (FileChannel fileChannel = getFileChannel(tmpFile, WRITE, APPEND)) {
+                for (int i = 0; i < numberOfWritesPerFC; i++) {
+                    fileChannel.write(ByteBuffer.wrap("k".getBytes()));
+                }
+            } catch (IOException e) {
+                throw new RuntimeException("failed to get fileChannel", e);
+            }
+        });
+        FileChannel fileChannel = getFileChannel(tmpFile, READ);
+        assertEquals(numberOfFC * numberOfWritesPerFC, fileChannel.size());
+    }
+
+    @Test
+    public void simpleWriteThenReadToBufferLimit() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
         final String writeString = "Hallo Welt!";
         try (final FileChannel fileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
@@ -187,7 +262,7 @@ public abstract class AbstractFileChannelTest {
     }
 
     @Test
-    public void writeAndReadFromPos() throws IOException {
+    public void writeAndReadFromPosition() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndReadFromPos.tlog");
         final String writeString = "Hallo Welt, hier ein etwas grösserer Text um zu encrypten! Mindestens grösser als der overhead.";
         try (final FileChannel fileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
@@ -200,7 +275,7 @@ public abstract class AbstractFileChannelTest {
     }
 
     @Test
-    public void writeAtPos_ex() throws IOException {
+    public void writeAtPosition_ex() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndReadFromPos.tlog");
         try (final FileChannel fileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
             final byte[] byteArray = new byte[55];
