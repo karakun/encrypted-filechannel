@@ -37,7 +37,7 @@ public class EncryptedFileChannel extends FileChannel {
     private final OpenOption[] openOptions;
     private final StreamingAead cryptoPrimitive;
     private final Object positionLock = new Object();
-    private final Object fileLock;
+    private final Object writeLock;
 
     private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
         if (encryptionKey == null) {
@@ -46,7 +46,7 @@ public class EncryptedFileChannel extends FileChannel {
         this.openOptions = openOptions;
         this.path = path;
         this.base = FileChannel.open(path, openOptions);
-        this.fileLock = path.toAbsolutePath().toString().intern();
+        this.writeLock = path.toAbsolutePath().toString().intern();
         try {
             cryptoPrimitive = constructCryptoPrimitive(encryptionKey);
         } catch (GeneralSecurityException e) {
@@ -114,7 +114,7 @@ public class EncryptedFileChannel extends FileChannel {
     }
 
     @Override
-    public synchronized int read(ByteBuffer dst, long position) throws IOException {
+    public int read(ByteBuffer dst, long position) throws IOException {
         if (position < 0) {
             throw new IllegalArgumentException("negative position");
         }
@@ -123,17 +123,23 @@ public class EncryptedFileChannel extends FileChannel {
                 if (position == inputChannel.size()) {
                     return -1;
                 }
-                inputChannel.position(position);
-                return inputChannel.read(dst);
+                // TODO discuss if this is a Lucene use case
+                synchronized (positionLock) {
+                    synchronized (writeLock) {
+                        inputChannel.position(position);
+                        return inputChannel.read(dst);
+                    }
+                }
             }
         }
         return -1;
     }
 
+
     @Override
     public int write(ByteBuffer src) throws IOException {
-        synchronized (fileLock) {
-            synchronized (positionLock) {
+        synchronized (positionLock) {
+            synchronized (writeLock) {
                 if (Arrays.stream(openOptions).anyMatch(it -> it == APPEND)) {
                     pos = base.size() == 0 ? base.size() : size();
                 }
@@ -157,15 +163,17 @@ public class EncryptedFileChannel extends FileChannel {
             throw new NonWritableChannelException();
         }
         int bytesToWrite = src.remaining();
-        synchronized (fileLock) {
-            final long newSize = Math.max(size(), position + bytesToWrite);
-            final ByteBuffer tmp = ByteBuffer.allocate((int) newSize);
-            read(tmp, 0);
-            tmp.position((int) position);
-            tmp.put(src.array(), 0, bytesToWrite);
-            tmp.rewind();
-            internalWrite(tmp);
-            src.position(src.position() + bytesToWrite);
+        synchronized (positionLock) {
+            synchronized (writeLock) {
+                final long newSize = Math.max(size(), position + bytesToWrite);
+                final ByteBuffer tmp = ByteBuffer.allocate((int) newSize);
+                read(tmp, 0);
+                tmp.position((int) position);
+                tmp.put(src.array(), 0, bytesToWrite);
+                tmp.rewind();
+                internalWrite(tmp);
+                src.position(src.position() + bytesToWrite);
+            }
         }
         return bytesToWrite;
     }
@@ -242,7 +250,7 @@ public class EncryptedFileChannel extends FileChannel {
                 .setKeyValue(ByteString.copyFrom(keyBytes))
                 .setParams(params)
                 .build();
-        return (StreamingAead) Registry.getPrimitive(StreamingAeadConfig.AES_GCM_HKDF_STREAMINGAEAD_TYPE_URL, streamingKey);
+        return Registry.getPrimitive(StreamingAeadConfig.AES_GCM_HKDF_STREAMINGAEAD_TYPE_URL, streamingKey, StreamingAead.class);
     }
 
 

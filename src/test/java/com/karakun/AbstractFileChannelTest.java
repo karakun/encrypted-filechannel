@@ -19,8 +19,7 @@ import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 import static java.nio.file.StandardOpenOption.*;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 public abstract class AbstractFileChannelTest {
 
@@ -117,6 +116,41 @@ public abstract class AbstractFileChannelTest {
     }
 
     @Test
+    public void multiThreadedAccess() throws IOException {
+        final Path tmpFile = Files.createTempFile("multiThreadedAccess", ".tlog");
+        final int numberOfIterations = 1_000;
+        final FileChannel[] fileChannels = {getFileChannel(tmpFile, READ, WRITE), getFileChannel(tmpFile, READ, WRITE)};
+        final byte[] bytes = new byte[numberOfIterations];
+        Arrays.fill(bytes, (byte) 0);
+        fileChannels[0].write(ByteBuffer.wrap(bytes));
+        assertEquals(numberOfIterations, fileChannels[0].size());
+        List<Long> aList = LongStream.rangeClosed(0, numberOfIterations - 1).boxed()
+                .collect(Collectors.toList());
+        final Random random = new Random();
+        aList.parallelStream().forEach(it -> {
+            try {
+                final byte[] byteVal = new byte[1];
+                random.nextBytes(byteVal);
+                bytes[it.intValue()] = byteVal[0];
+                fileChannels[random.nextInt(1)].write(ByteBuffer.wrap(byteVal), it);
+
+                // TODO discuss if this is a Lucene use case
+                final ByteBuffer readBuffer = ByteBuffer.allocate(1);
+                fileChannels[random.nextInt(1)].read(readBuffer, it);
+                assertEquals(byteVal[0], readBuffer.array()[0]);
+            } catch (IOException e) {
+                throw new RuntimeException("failed to write fileChannel", e);
+            }
+
+        });
+        FileChannel fileChannel = getFileChannel(tmpFile, READ);
+        assertEquals(numberOfIterations, fileChannel.size());
+        final ByteBuffer readBuffer = ByteBuffer.allocate(numberOfIterations);
+        fileChannel.read(readBuffer);
+        assertArrayEquals(bytes, readBuffer.array());
+    }
+
+    @Test
     public void simpleWriteThenReadToBufferLimit() throws IOException {
         Path tmpFile = tempDir.resolve("writeAndRead.tlog");
         final String writeString = "Hallo Welt!";
@@ -138,7 +172,7 @@ public abstract class AbstractFileChannelTest {
         try (final FileChannel fileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
             Files.delete(tmpFile);
             final ByteBuffer byteBuffer = ByteBuffer.allocate("Hallo Welt".getBytes().length);
-            assertEquals(-1, fileChannel.read(byteBuffer), "size");
+            assertEquals(-1, fileChannel.read(byteBuffer), "bytes read");
         }
     }
 
