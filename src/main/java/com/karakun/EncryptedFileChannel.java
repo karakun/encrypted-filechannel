@@ -119,20 +119,16 @@ public class EncryptedFileChannel extends FileChannel {
             throw new IllegalArgumentException("negative position");
         }
         try (final SeekableByteChannel inputChannel = getInputChannel()) {
-            if (inputChannel != null) {
-                if (position == inputChannel.size()) {
-                    return -1;
-                }
-                // TODO discuss if this is a Lucene use case
-                synchronized (positionLock) {
-                    synchronized (writeLock) {
-                        inputChannel.position(position);
-                        return inputChannel.read(dst);
-                    }
+            if (inputChannel == null || position == inputChannel.size()) {
+                return -1;
+            }
+            synchronized (positionLock) {
+                synchronized (writeLock) {
+                    inputChannel.position(position);
+                    return inputChannel.read(dst);
                 }
             }
         }
-        return -1;
     }
 
 

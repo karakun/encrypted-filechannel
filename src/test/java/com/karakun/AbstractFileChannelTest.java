@@ -134,7 +134,6 @@ public abstract class AbstractFileChannelTest {
                 bytes[it.intValue()] = byteVal[0];
                 fileChannels[random.nextInt(1)].write(ByteBuffer.wrap(byteVal), it);
 
-                // TODO discuss if this is a Lucene use case
                 final ByteBuffer readBuffer = ByteBuffer.allocate(1);
                 fileChannels[random.nextInt(1)].read(readBuffer, it);
                 assertEquals(byteVal[0], readBuffer.array()[0]);
