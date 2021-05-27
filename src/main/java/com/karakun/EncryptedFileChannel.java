@@ -38,8 +38,9 @@ public class EncryptedFileChannel extends FileChannel {
     private final StreamingAead cryptoPrimitive;
     private final Object positionLock = new Object();
     private final Object writeLock;
+    private final OnClose onClose;
 
-    private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
+    private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final OnClose onClose, final OpenOption... openOptions) throws IOException {
         if (encryptionKey == null) {
             throw new IllegalStateException(String.format("Encryption key must not be null for file '%s'.", path));
         }
@@ -47,6 +48,7 @@ public class EncryptedFileChannel extends FileChannel {
         this.path = path;
         this.base = FileChannel.open(path, openOptions);
         this.writeLock = path.toAbsolutePath().toString().intern();
+        this.onClose = onClose;
         try {
             cryptoPrimitive = constructCryptoPrimitive(encryptionKey);
         } catch (GeneralSecurityException e) {
@@ -55,7 +57,11 @@ public class EncryptedFileChannel extends FileChannel {
     }
 
     public static EncryptedFileChannel open(final Path path, final byte[] encryptionKey, final OpenOption... openOptions) throws IOException {
-        return new EncryptedFileChannel(path, encryptionKey, openOptions);
+        return new EncryptedFileChannel(path, encryptionKey, null, openOptions);
+    }
+
+    public static EncryptedFileChannel open(Path path, byte[] encryptionKey, OnClose onClose, OpenOption... openOptions) throws IOException {
+        return new EncryptedFileChannel(path, encryptionKey, onClose, openOptions);
     }
 
     private SeekableByteChannel getInputChannel() throws IOException {
@@ -79,6 +85,9 @@ public class EncryptedFileChannel extends FileChannel {
 
     @Override
     protected void implCloseChannel() throws IOException {
+        if (onClose != null) {
+            onClose.execute();
+        }
         if (base != null) {
             base.close();
         }
