@@ -27,6 +27,7 @@ import static java.nio.file.StandardOpenOption.*;
 public class EncryptedFileChannel extends FileChannel {
 
     private final FileChannel base;
+    private static int MEGABYTE = 1024 * 1024;
 
     /**
      * The current position within the file, from a user perspective.
@@ -248,7 +249,7 @@ public class EncryptedFileChannel extends FileChannel {
         Config.register(StreamingAeadConfig.LATEST);
         final AesGcmHkdfStreamingParams params = AesGcmHkdfStreamingParams.newBuilder()
                 .setDerivedKeySize(32)
-                .setCiphertextSegmentSize(128)
+                .setCiphertextSegmentSize(MEGABYTE)
                 .setHkdfHashType(HashType.SHA256)
                 .build();
         AesGcmHkdfStreamingKey streamingKey = AesGcmHkdfStreamingKey.newBuilder()
