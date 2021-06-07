@@ -1,23 +1,21 @@
 package com.karakun;
 
-import com.google.crypto.tink.Config;
+import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.Registry;
-import com.google.crypto.tink.StreamingAead;
-import com.google.crypto.tink.proto.AesGcmHkdfStreamingKey;
-import com.google.crypto.tink.proto.AesGcmHkdfStreamingParams;
-import com.google.crypto.tink.proto.HashType;
-import com.google.crypto.tink.streamingaead.StreamingAeadConfig;
+import com.google.crypto.tink.aead.AeadConfig;
+import com.google.crypto.tink.proto.AesGcmKey;
 import com.google.protobuf.ByteString;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.*;
-import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static java.nio.file.StandardOpenOption.*;
 
@@ -26,8 +24,8 @@ import static java.nio.file.StandardOpenOption.*;
  */
 public class EncryptedFileChannel extends FileChannel {
 
+    public static final int MAGIC_NUMBER = 28;
     private final FileChannel base;
-    private static int MEGABYTE = 1024 * 1024;
 
     /**
      * The current position within the file, from a user perspective.
@@ -36,7 +34,7 @@ public class EncryptedFileChannel extends FileChannel {
 
     private final Path path;
     private final OpenOption[] openOptions;
-    private final StreamingAead cryptoPrimitive;
+    private final Aead cryptoPrimitive;
     private final Object positionLock = new Object();
     private final Object writeLock;
     private final OnClose onClose;
@@ -47,7 +45,9 @@ public class EncryptedFileChannel extends FileChannel {
         }
         this.openOptions = openOptions;
         this.path = path;
-        this.base = FileChannel.open(path, openOptions);
+        final Set<OpenOption> openOptionsModified = Arrays.stream(openOptions).filter(it -> APPEND != it).collect(Collectors.toSet()); //APPEND needs to be manually implemented
+        openOptionsModified.add(READ); //we always need READ (also for write only)
+        this.base = FileChannel.open(path, openOptionsModified);
         this.writeLock = path.toAbsolutePath().toString().intern();
         this.onClose = onClose;
         try {
@@ -65,24 +65,6 @@ public class EncryptedFileChannel extends FileChannel {
         return new EncryptedFileChannel(path, encryptionKey, onClose, openOptions);
     }
 
-    private SeekableByteChannel getInputChannel() throws IOException {
-        if (Files.exists(path) && Files.size(path) > 0) {
-            try {
-                return cryptoPrimitive.newSeekableDecryptingChannel(FileChannel.open(path, READ), new byte[]{});
-            } catch (GeneralSecurityException e) {
-                throw new IOException(e);
-            }
-        }
-        return null;
-    }
-
-    private WritableByteChannel getOutputChannel() throws IOException {
-        try {
-            return cryptoPrimitive.newEncryptingChannel(FileChannel.open(path, WRITE), new byte[]{});
-        } catch (GeneralSecurityException e) {
-            throw new IOException(e);
-        }
-    }
 
     @Override
     protected void implCloseChannel() throws IOException {
@@ -128,17 +110,36 @@ public class EncryptedFileChannel extends FileChannel {
         if (position < 0) {
             throw new IllegalArgumentException("negative position");
         }
-        try (final SeekableByteChannel inputChannel = getInputChannel()) {
-            if (inputChannel == null || position == inputChannel.size()) {
-                return -1;
-            }
-            synchronized (positionLock) {
-                synchronized (writeLock) {
-                    inputChannel.position(position);
-                    return inputChannel.read(dst);
-                }
+        final int size = (int) base.size();
+        if (size == 0) {
+            return -1;
+        }
+        final ByteBuffer tmp = ByteBuffer.allocate(size);
+        final int read;
+        synchronized (positionLock) {
+            synchronized (writeLock) {
+                read = base.read(tmp, 0);
             }
         }
+        if (read > 0) {
+            tmp.rewind();
+            try {
+                final byte[] decrypt = cryptoPrimitive.decrypt(tmp.array(), new byte[0]);
+                final int limit = dst.limit();
+                final int remaining = decrypt.length - (int) position;
+                if (remaining < 1) {
+                    //position past end of file
+                    return -1;
+                }
+                final int decryptRead = Math.min(remaining, limit);
+                dst.put(decrypt, (int) position, decryptRead);
+                return decryptRead;
+            } catch (GeneralSecurityException e) {
+                throw new IllegalStateException("Failed to decrypt " + path, e);
+            }
+        }
+        return read;
+
     }
 
 
@@ -159,7 +160,7 @@ public class EncryptedFileChannel extends FileChannel {
     }
 
     @Override
-    public long write(ByteBuffer[] byteBuffers, int i, int i1) throws IOException {
+    public long write(ByteBuffer[] byteBuffers, int offset, int length) throws IOException {
         throw new UnsupportedOperationException();
     }
 
@@ -184,34 +185,30 @@ public class EncryptedFileChannel extends FileChannel {
         return bytesToWrite;
     }
 
-    private void internalWrite(ByteBuffer tmp) throws IOException {
-        try (WritableByteChannel writableByteChannel = getOutputChannel()) {
-            int bytesWritten = writableByteChannel.write(tmp);
-            if (tmp.array().length != bytesWritten) {
-                throw new IllegalStateException("failed to write bytes");
-            }
+    private void internalWrite(ByteBuffer data) throws IOException {
+        try {
+            final byte[] encrypt = cryptoPrimitive.encrypt(data.array(), new byte[0]);
+            base.write(ByteBuffer.wrap(encrypt), 0);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Failed to encrypt " + path, e);
         }
     }
 
 
     @Override
-    public MappedByteBuffer map(MapMode mapMode, long l, long l1) throws IOException {
+    public MappedByteBuffer map(MapMode mapMode, long position, long size) throws IOException {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public FileLock lock(long l, long l1, boolean b) throws IOException {
+    public FileLock lock(long position, long size, boolean shared) throws IOException {
         throw new UnsupportedOperationException();
     }
 
     @Override
     public long size() throws IOException {
-        try (final SeekableByteChannel inputChannel = getInputChannel()) {
-            if (inputChannel != null) {
-                return inputChannel.size();
-            }
-        }
-        return 0;
+        final long size = base.size();
+        return size == 0 ? 0 : size - MAGIC_NUMBER; //TODO get explanation for this magic number :-D
     }
 
     @Override
@@ -225,18 +222,17 @@ public class EncryptedFileChannel extends FileChannel {
     }
 
     @Override
-    public long transferTo(long l, long l1, WritableByteChannel writableByteChannel) throws IOException {
+    public long transferTo(long position, long count, WritableByteChannel target) throws IOException {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public long transferFrom(ReadableByteChannel readableByteChannel, long l, long l1) throws IOException {
+    public long transferFrom(ReadableByteChannel src, long position, long count) throws IOException {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public FileLock tryLock(long position, long size, boolean shared)
-            throws IOException {
+    public FileLock tryLock(long position, long size, boolean shared) throws IOException {
         throw new UnsupportedOperationException();
     }
 
@@ -245,18 +241,10 @@ public class EncryptedFileChannel extends FileChannel {
         return path.toString();
     }
 
-    static StreamingAead constructCryptoPrimitive(byte[] keyBytes) throws GeneralSecurityException {
-        Config.register(StreamingAeadConfig.LATEST);
-        final AesGcmHkdfStreamingParams params = AesGcmHkdfStreamingParams.newBuilder()
-                .setDerivedKeySize(32)
-                .setCiphertextSegmentSize(MEGABYTE)
-                .setHkdfHashType(HashType.SHA256)
-                .build();
-        AesGcmHkdfStreamingKey streamingKey = AesGcmHkdfStreamingKey.newBuilder()
-                .setKeyValue(ByteString.copyFrom(keyBytes))
-                .setParams(params)
-                .build();
-        return Registry.getPrimitive(StreamingAeadConfig.AES_GCM_HKDF_STREAMINGAEAD_TYPE_URL, streamingKey, StreamingAead.class);
+    static Aead constructCryptoPrimitive(byte[] keyBytes) throws GeneralSecurityException {
+        AeadConfig.register();
+        final AesGcmKey key = AesGcmKey.newBuilder().setVersion(0).setKeyValue(ByteString.copyFrom(keyBytes)).build();
+        return Registry.getPrimitive(AeadConfig.AES_GCM_TYPE_URL, key, Aead.class);
     }
 
 
