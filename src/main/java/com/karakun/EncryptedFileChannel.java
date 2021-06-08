@@ -24,7 +24,10 @@ import static java.nio.file.StandardOpenOption.*;
  */
 public class EncryptedFileChannel extends FileChannel {
 
-    public static final int MAGIC_NUMBER = 28;
+    // All instances of this class use a 12 byte IV and a 16 byte tag.
+    private static final int IV_SIZE_IN_BYTES = 12;
+    private static final int TAG_SIZE_IN_BYTES = 16;
+    private static final int ENCRYPTION_OVERHEAD = IV_SIZE_IN_BYTES + TAG_SIZE_IN_BYTES;
     private final FileChannel base;
 
     /**
@@ -101,7 +104,7 @@ public class EncryptedFileChannel extends FileChannel {
     }
 
     @Override
-    public long read(ByteBuffer[] byteBuffers, int i, int i1) throws IOException {
+    public long read(ByteBuffer[] dsts, int offset, int length) throws IOException {
         throw new UnsupportedOperationException();
     }
 
@@ -110,14 +113,15 @@ public class EncryptedFileChannel extends FileChannel {
         if (position < 0) {
             throw new IllegalArgumentException("negative position");
         }
-        final int size = (int) base.size();
-        if (size == 0) {
-            return -1;
-        }
-        final ByteBuffer tmp = ByteBuffer.allocate(size);
         final int read;
+        final ByteBuffer tmp;
         synchronized (positionLock) {
             synchronized (writeLock) {
+                final int size = (int) base.size();
+                if (size == 0) {
+                    return -1;
+                }
+                tmp = ByteBuffer.allocate(size);
                 read = base.read(tmp, 0);
             }
         }
@@ -125,13 +129,13 @@ public class EncryptedFileChannel extends FileChannel {
             tmp.rewind();
             try {
                 final byte[] decrypt = cryptoPrimitive.decrypt(tmp.array(), new byte[0]);
-                final int limit = dst.limit();
+                final int destRemaining = dst.remaining();
                 final int remaining = decrypt.length - (int) position;
                 if (remaining < 1) {
                     //position past end of file
                     return -1;
                 }
-                final int decryptRead = Math.min(remaining, limit);
+                final int decryptRead = Math.min(remaining, destRemaining);
                 dst.put(decrypt, (int) position, decryptRead);
                 return decryptRead;
             } catch (GeneralSecurityException e) {
@@ -208,7 +212,7 @@ public class EncryptedFileChannel extends FileChannel {
     @Override
     public long size() throws IOException {
         final long size = base.size();
-        return size == 0 ? 0 : size - MAGIC_NUMBER; //TODO get explanation for this magic number :-D
+        return size == 0 ? 0 : size - ENCRYPTION_OVERHEAD;
     }
 
     @Override
