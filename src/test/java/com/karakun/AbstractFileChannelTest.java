@@ -101,7 +101,7 @@ public abstract class AbstractFileChannelTest {
         final int numberOfFC = 100;
         final int numberOfWritesPerFC = 10;
         List<Long> aList = LongStream.rangeClosed(1, numberOfFC).boxed()
-                .collect(Collectors.toList());
+                .toList();
         aList.parallelStream().forEach(it -> {
             try (FileChannel fileChannel = getFileChannel(tmpFile, WRITE, APPEND)) {
                 for (int i = 0; i < numberOfWritesPerFC; i++) {
