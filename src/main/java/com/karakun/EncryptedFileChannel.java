@@ -1,8 +1,6 @@
 package com.karakun;
 
-import com.google.crypto.tink.Config;
-import com.google.crypto.tink.Registry;
-import com.google.crypto.tink.StreamingAead;
+import com.google.crypto.tink.*;
 import com.google.crypto.tink.proto.AesGcmHkdfStreamingKey;
 import com.google.crypto.tink.proto.AesGcmHkdfStreamingParams;
 import com.google.crypto.tink.proto.HashType;
@@ -39,9 +37,9 @@ public class EncryptedFileChannel extends FileChannel {
     private final StreamingAead cryptoPrimitive;
     private final Object positionLock = new Object();
     private final Object writeLock;
-    private final OnClose onClose;
+    private final Runnable onClose;
 
-    private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final OnClose onClose, final OpenOption... openOptions) throws IOException {
+    private EncryptedFileChannel(final Path path, final byte[] encryptionKey, final Runnable onClose, final OpenOption... openOptions) throws IOException {
         if (encryptionKey == null) {
             throw new IllegalStateException(String.format("Encryption key must not be null for file '%s'.", path));
         }
@@ -61,7 +59,7 @@ public class EncryptedFileChannel extends FileChannel {
         return new EncryptedFileChannel(path, encryptionKey, null, openOptions);
     }
 
-    public static EncryptedFileChannel open(Path path, byte[] encryptionKey, OnClose onClose, OpenOption... openOptions) throws IOException {
+    public static EncryptedFileChannel open(Path path, final byte[] encryptionKey, Runnable onClose, OpenOption... openOptions) throws IOException {
         return new EncryptedFileChannel(path, encryptionKey, onClose, openOptions);
     }
 
@@ -87,7 +85,7 @@ public class EncryptedFileChannel extends FileChannel {
     @Override
     protected void implCloseChannel() throws IOException {
         if (onClose != null) {
-            onClose.execute();
+            onClose.run();
         }
         if (base != null) {
             base.close();
