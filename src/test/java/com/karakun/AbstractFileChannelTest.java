@@ -15,7 +15,6 @@ import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
-import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 import static java.nio.file.StandardOpenOption.*;
@@ -100,8 +99,7 @@ public abstract class AbstractFileChannelTest {
         final Path tmpFile = Files.createTempFile("atomicWrites", ".tlog");
         final int numberOfFC = 100;
         final int numberOfWritesPerFC = 10;
-        List<Long> aList = LongStream.rangeClosed(1, numberOfFC).boxed()
-                .toList();
+        List<Long> aList = LongStream.rangeClosed(1, numberOfFC).boxed().toList();
         aList.parallelStream().forEach(it -> {
             try (FileChannel fileChannel = getFileChannel(tmpFile, WRITE, APPEND)) {
                 for (int i = 0; i < numberOfWritesPerFC; i++) {
@@ -124,8 +122,7 @@ public abstract class AbstractFileChannelTest {
         Arrays.fill(bytes, (byte) 0);
         fileChannels[0].write(ByteBuffer.wrap(bytes));
         assertEquals(numberOfIterations, fileChannels[0].size());
-        List<Long> aList = LongStream.rangeClosed(0, numberOfIterations - 1).boxed()
-                .collect(Collectors.toList());
+        List<Long> aList = LongStream.rangeClosed(0, numberOfIterations - 1).boxed().toList();
         final Random random = new Random();
         aList.parallelStream().forEach(it -> {
             try {

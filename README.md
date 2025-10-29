@@ -19,22 +19,23 @@ without changing Lucene’s logic or APIs.
 ```java
 private static final byte[] ENCRYPTION_KEY = Base64.getUrlDecoder().decode("cxGrfBkPPMpbUGKUU1iaBW8RCDeID8-uR40jslBQaMY=");
 
-private FileChannel getFileChannel(Path tmpFile, OpenOption... openOptions) throws IOException {
-    return EncryptedFileChannel.open(tmpFile, ENCRYPTION_KEY, openOptions);
-}
-
 private void readAndWrite() throws IOException {
     Path tmpFile = Files.createTempDirectory(Scratch.class.getName()).resolve("writeAndRead.tlog");
     final String writeString = "Hello world!";
-    try (final FileChannel fileChannel = getFileChannel(tmpFile, WRITE, READ, CREATE_NEW)) {
+    try (final FileChannel fileChannel = EncryptedFileChannel.open(tmpFile, ENCRYPTION_KEY, CREATE_NEW)) {
         fileChannel.write(ByteBuffer.wrap(writeString.getBytes()));
         assertEquals(writeString.getBytes().length, fileChannel.size(), "size");
     }
-    try (final FileChannel fileChannel = getFileChannel(tmpFile, READ)) {
+    try (final FileChannel fileChannel = EncryptedFileChannel.open(tmpFile, ENCRYPTION_KEY, READ)) {
         final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
         fileChannel.read(byteBuffer, 0);
         assertEquals(writeString, new String(byteBuffer.array()));
-        assertEquals(writeString.getBytes().length, fileChannel.size(), "size");
+    }
+    // Try reading with a non-decrypting FileChannel.
+    try (final FileChannel fileChannel = FileChannel.open(tmpFile, READ)) {
+        final ByteBuffer byteBuffer = ByteBuffer.allocate(writeString.getBytes().length);
+        fileChannel.read(byteBuffer, 0);
+        assertNotEquals(writeString, new String(byteBuffer.array()));
     }
 }
 ```
@@ -49,7 +50,7 @@ private void readAndWrite() throws IOException {
 
 Google Tink enforces safe defaults, authenticated encryption, and key rotation.
 It helps prevent common cryptographic mistakes such as nonce reuse, missing authentication tags, or unsafe cipher modes.
-In short: **don’t roll your own crypto!**.
+In short: **don’t roll your own crypto!**
 
 ## Build and Test
 
@@ -60,4 +61,5 @@ mvn clean package
 ```
 
 Continuous integration runs automatically on GitHub Actions with Java 21 (Temurin).
+
 ![Build](https://github.com/karakun/encrypted-filechannel/actions/workflows/maven.yml/badge.svg)
