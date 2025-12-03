@@ -1,6 +1,6 @@
 # EncryptedFileChannel
 
-A drop-in replacement for Java’s `FileChannel` that transparently encrypts and decrypts file data
+An open source drop-in replacement for Java’s `FileChannel` that transparently encrypts and decrypts file data
 using [Google Tink](https://github.com/tink-crypto).
 
 Originally developed for a custom Apache Lucene store plugin, it allows encrypted index and transaction log files
@@ -16,6 +16,21 @@ without changing Lucene’s logic or APIs.
 
 ## Usage
 
+### Gradle Integration
+```groovy
+repositories {
+    maven {
+        url "https://nexus.karakun.com/repository/maven-public-releases/"
+    }
+}
+
+dependencies {
+    implementation 'com.karakun:encrypted-filechannel:2.1.0'
+}
+```
+Of course, it can also be integrated into Maven with the appropriate syntax.
+
+### Read and Write Channel
 ```java
 private static final byte[] ENCRYPTION_KEY = Base64.getUrlDecoder().decode("cxGrfBkPPMpbUGKUU1iaBW8RCDeID8-uR40jslBQaMY=");
 
@@ -63,3 +78,7 @@ mvn clean package
 Continuous integration runs automatically on GitHub Actions with Java 21 (Temurin).
 
 ![Build](https://github.com/karakun/encrypted-filechannel/actions/workflows/maven.yml/badge.svg)
+
+## Misc
+
+There is also a tech article about this component on Karakuns [dev hub](https://dev.karakun.com/2025/12/01/EncryptedFileChannel.html).
